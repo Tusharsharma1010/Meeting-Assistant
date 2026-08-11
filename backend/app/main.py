@@ -51,7 +51,6 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["*"],
 )
-
 # Store active processors
 active_processors: Dict[str, EnhancedAudioProcessor] = {}
 
