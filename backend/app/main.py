@@ -26,7 +26,11 @@ ai_service = EnhancedAIService()
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "https://meeting-assistant-opal-five.vercel.app",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -295,10 +299,6 @@ async def health_check():
             "status": "healthy",
             "active_connections": len(active_processors),
             "timestamp": datetime.now(timezone.utc).isoformat()
-        },
-        headers={
-            "Access-Control-Allow-Origin": "http://localhost:5173",
-            "Access-Control-Allow-Credentials": "true",
         }
     )
 
@@ -326,10 +326,6 @@ async def create_meeting(title: Optional[str] = None, db: Session = Depends(get_
                 "is_active": meeting.is_active,
                 "transcripts": [],
                 "action_items": []
-            },
-            headers={
-                "Access-Control-Allow-Origin": "http://localhost:5173",
-                "Access-Control-Allow-Credentials": "true",
             }
         )
     except Exception as e:
@@ -388,11 +384,7 @@ async def list_meetings(db: Session = Depends(get_db)):
             response_data.append(meeting_data)
 
         return JSONResponse(
-            content=response_data,
-            headers={
-                "Access-Control-Allow-Origin": "http://localhost:5173",
-                "Access-Control-Allow-Credentials": "true",
-            }
+            content=response_data
         )
     except Exception as e:
         logger.error(f"Error fetching meetings: {e}")
@@ -547,11 +539,7 @@ async def get_meeting_details(meeting_id: str, db: Session = Depends(get_db)):
         logger.info(f"First transcript: {response_data['transcripts'][0] if response_data['transcripts'] else 'No transcripts'}")
         
         return JSONResponse(
-            content=response_data,
-            headers={
-                "Access-Control-Allow-Origin": "http://localhost:5173",
-                "Access-Control-Allow-Credentials": "true",
-            }
+            content=response_data
         )
 
     except HTTPException:
@@ -591,10 +579,6 @@ async def get_meeting_transcripts(meeting_id: str, db: Session = Depends(get_db)
                         "confidence": t.confidence if hasattr(t, 'confidence') else None
                     } for t in transcripts
                 ]
-            },
-            headers={
-                "Access-Control-Allow-Origin": "http://localhost:5173",
-                "Access-Control-Allow-Credentials": "true",
             }
         )
     except HTTPException:
@@ -643,10 +627,6 @@ async def create_test_transcripts(meeting_id: str, db: Session = Depends(get_db)
                         "timestamp": t.timestamp.isoformat()
                     } for t in created_transcripts
                 ]
-            },
-            headers={
-                "Access-Control-Allow-Origin": "http://localhost:5173",
-                "Access-Control-Allow-Credentials": "true",
             }
         )
     except Exception as e:
@@ -704,10 +684,6 @@ async def generate_meeting_summary(
                     "status": "success",
                     "meeting_id": meeting_id,
                     "summary": summary_text
-                },
-                headers={
-                    "Access-Control-Allow-Origin": "http://localhost:5173",
-                    "Access-Control-Allow-Credentials": "true",
                 }
             )
         else:
@@ -723,11 +699,7 @@ async def get_ai_usage_stats():
     try:
         stats = ai_service.get_usage_stats()
         return JSONResponse(
-            content=stats,
-            headers={
-                "Access-Control-Allow-Origin": "http://localhost:5173",
-                "Access-Control-Allow-Credentials": "true",
-            }
+            content=stats
         )
     except Exception as e:
         logger.error(f"Error getting AI usage stats: {e}")
@@ -783,10 +755,6 @@ async def generate_progressive_summary(
                     "status": "success",
                     "meeting_id": meeting_id,
                     "progressive_summary": summary_text
-                },
-                headers={
-                    "Access-Control-Allow-Origin": "http://localhost:5173",
-                    "Access-Control-Allow-Credentials": "true",
                 }
             )
 
@@ -837,10 +805,6 @@ async def end_meeting(meeting_id: str, db: Session = Depends(get_db)):
                 "meeting_id": meeting.meeting_id,
                 "end_time": meeting.end_time.isoformat(),
                 "is_active": meeting.is_active
-            },
-            headers={
-                "Access-Control-Allow-Origin": "http://localhost:5173",
-                "Access-Control-Allow-Credentials": "true",
             }
         )
     except HTTPException:
