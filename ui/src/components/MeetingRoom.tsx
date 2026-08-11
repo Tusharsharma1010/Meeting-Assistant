@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Button } from './ui/button';
 import { AudioRecorder } from '../services/AudioRecorder';
 
@@ -34,6 +34,7 @@ interface MeetingInsights {
 }
 
 export function MeetingRoom({ onBack, meetingId, meetingTitle }: MeetingRoomProps) {
+  const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
   // State management
   const [isRecording, setIsRecording] = useState(false);
   const [transcripts, setTranscripts] = useState<TranscriptItem[]>([]);
@@ -42,8 +43,6 @@ export function MeetingRoom({ onBack, meetingId, meetingTitle }: MeetingRoomProp
   const [status, setStatus] = useState<string>('');
   const [duration, setDuration] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [actionItems, setActionItems] = useState<string[]>([]);
-  const [summary, setSummary] = useState<string>('');
   const [insights, setInsights] = useState<MeetingInsights>({});
 
   // Refs
@@ -51,26 +50,16 @@ export function MeetingRoom({ onBack, meetingId, meetingTitle }: MeetingRoomProp
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const durationIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const insightsIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const insightsRequestInFlightRef = useRef(false);
   const mountedRef = useRef(true);
 
   const fetchInsights = useCallback(async () => {
     if (!meetingId || !isRecording) return;
 
-    // Prevent overlapping Gemini requests if a previous request is still
-    // running when the polling interval fires.
-    if (insightsRequestInFlightRef.current) {
-      console.log('Skipping live insights request because one is already running');
-      return;
-    }
-
-    insightsRequestInFlightRef.current = true;
-
     try {
       console.log('Fetching insights for meeting:', meetingId);
 
       const response = await fetch(
-        `http://localhost:8000/meetings/${meetingId}/live-insights`,
+        `${API_BASE_URL}/meetings/${meetingId}/live-insights`,
         {
           method: 'POST',
           headers: {
@@ -89,21 +78,19 @@ export function MeetingRoom({ onBack, meetingId, meetingTitle }: MeetingRoomProp
 
       console.log('Received insights data:', data);
 
-      if (!mountedRef.current) return;
+      // Transform questions if needed
+      const questions = data.questions
+        ? Array.isArray(data.questions)
+          ? data.questions
+          : Object.keys(data.questions)
+        : [];
 
-      // Transform questions if needed.
-      const questions = Array.isArray(data.questions)
-        ? data.questions
-        : data.questions && typeof data.questions === 'object'
-          ? Object.values(data.questions)
-          : [];
-
-      // Transform action items if needed.
-      const actionItems = Array.isArray(data.action_items)
-        ? data.action_items
-        : data.action_items
-          ? [data.action_items]
-          : [];
+      // Transform action items if needed
+      const actionItems = data.action_items
+        ? Array.isArray(data.action_items)
+          ? data.action_items
+          : [data.action_items]
+        : [];
 
       /*
        * IMPORTANT:
@@ -112,44 +99,36 @@ export function MeetingRoom({ onBack, meetingId, meetingTitle }: MeetingRoomProp
        *
        * {
        *   summary: null,
-       *   questions: [],
-       *   action_items: []
+       *   questions: null,
+       *   action_items: null
        * }
        *
-       * This can happen when there are not enough transcripts yet or
-       * when the AI service is temporarily unavailable.
-       *
-       * Do NOT overwrite previously generated insights with empty data.
+       * We must NOT overwrite previously generated
+       * insights with empty arrays in that case.
        */
       setInsights(prevInsights => ({
         ...prevInsights,
 
+        // Keep previous summary if backend returns null/empty
         summary: data.summary || prevInsights.summary,
 
+        // Only replace questions when new questions exist
         questions:
           questions.length > 0
             ? questions
             : prevInsights.questions || [],
 
+        // Only replace action items when new action items exist
         action_items:
           actionItems.length > 0
             ? actionItems
             : prevInsights.action_items || [],
       }));
-
-      // Clear an old error after a successful request.
-      setError(null);
     } catch (error) {
       console.error('Error fetching insights:', error);
-
-      // Keep existing insights visible even if one polling request fails.
-      if (mountedRef.current) {
-        setError('Failed to fetch meeting insights');
-      }
-    } finally {
-      insightsRequestInFlightRef.current = false;
+      setError('Failed to fetch meeting insights');
     }
-  }, [meetingId, isRecording]);
+  }, [API_BASE_URL, meetingId, isRecording]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -206,7 +185,7 @@ export function MeetingRoom({ onBack, meetingId, meetingTitle }: MeetingRoomProp
       // Then fetch every 30 seconds
       insightsIntervalRef.current = setInterval(
         fetchInsights,
-        300000
+        30000
       );
     }
 
