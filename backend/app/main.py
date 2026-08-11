@@ -12,9 +12,16 @@ from typing import Dict, Optional, List
 import uuid
 from .services.ai_service import AIService
 from fastapi import BackgroundTasks
-from .database.models import Meeting, Summary, TranscriptSegment, ActionItem
+from .database.models import (
+    Meeting,
+    Summary,
+    TranscriptSegment,
+    ActionItem,
+    FollowUpQuestion,
+    Topic,
+)
 from .database import schemas
-from .database.config import SessionLocal, engine
+from .database.config import SessionLocal, engine, Base
 from .core.audio.processor import EnhancedAudioProcessor
 from .services.enhanced_ai_service import EnhancedAIService 
 # Set up logging
@@ -22,11 +29,23 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
+
+# Initialize database tables
+try:
+    Base.metadata.create_all(bind=engine)
+    logger.info("Database tables verified/created successfully.")
+except Exception as e:
+    logger.error(f"Database initialization failed: {e}")
+
 ai_service = EnhancedAIService()
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "https://meeting-assistant-opal-five.vercel.app",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
