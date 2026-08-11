@@ -1,5 +1,5 @@
 export class TranscriptionService {
-    private static BASE_URL = 'http://localhost:8000';
+    private static BASE_URL = import.meta.env.VITE_API_BASE_URL;
   
     static async transcribeAudio(audioBlob: Blob): Promise<string> {
       const formData = new FormData();

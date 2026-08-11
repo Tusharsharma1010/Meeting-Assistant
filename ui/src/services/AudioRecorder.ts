@@ -260,7 +260,8 @@ export class AudioRecorder {
         return new Promise<void>((resolve, reject) => {
             try {
                 console.log('Initializing WebSocket...', { clientId: this.clientId });
-                this.websocket = new WebSocket(`ws://localhost:8000/ws/${this.clientId}`);
+                const wsBaseUrl = import.meta.env.VITE_API_BASE_URL.replace(/^http/, 'ws');
+this.websocket = new WebSocket(`${wsBaseUrl}/ws/${this.clientId}`);
                 
                 this.websocket.onopen = () => {
                     console.log('WebSocket connected successfully');
