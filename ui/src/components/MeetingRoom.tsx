@@ -37,7 +37,8 @@ export function MeetingRoom({ onBack, meetingId, meetingTitle }: MeetingRoomProp
   // State management
   const [isRecording, setIsRecording] = useState(false);
   const [transcripts, setTranscripts] = useState<TranscriptItem[]>([]);
-  const [interimTranscripts, setInterimTranscripts] = useState<InterimTranscripts>({});
+  const [interimTranscripts, setInterimTranscripts] =
+    useState<InterimTranscripts>({});
   const [status, setStatus] = useState<string>('');
   const [duration, setDuration] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -50,54 +51,105 @@ export function MeetingRoom({ onBack, meetingId, meetingTitle }: MeetingRoomProp
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const durationIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const insightsIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const insightsRequestInFlightRef = useRef(false);
   const mountedRef = useRef(true);
 
   const fetchInsights = useCallback(async () => {
     if (!meetingId || !isRecording) return;
 
-    try {
-        console.log('Fetching insights for meeting:', meetingId);
-        const response = await fetch(`http://localhost:8000/meetings/${meetingId}/live-insights`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-        });
-
-        if (!response.ok) {
-            throw new Error(`Failed to fetch insights: ${response.statusText}`);
-        }
-
-        const data = await response.json();
-        console.log('Received insights data:', data);
-
-        // Transform questions if needed
-        const questions = data.questions ? 
-            (Array.isArray(data.questions) ? 
-                data.questions : 
-                Object.keys(data.questions))
-            : [];
-
-        // Transform action items if needed
-        const actionItems = data.action_items ? 
-            (Array.isArray(data.action_items) ? 
-                data.action_items : 
-                [data.action_items])
-            : [];
-
-        setInsights(prevInsights => ({
-            ...prevInsights,
-            summary: data.summary || prevInsights.summary,
-            questions: questions,
-            action_items: actionItems
-        }));
-
-    } catch (error) {
-        console.error('Error fetching insights:', error);
-        setError('Failed to fetch meeting insights');
+    // Prevent overlapping Gemini requests if a previous request is still
+    // running when the polling interval fires.
+    if (insightsRequestInFlightRef.current) {
+      console.log('Skipping live insights request because one is already running');
+      return;
     }
-}, [meetingId, isRecording]);
 
+    insightsRequestInFlightRef.current = true;
+
+    try {
+      console.log('Fetching insights for meeting:', meetingId);
+
+      const response = await fetch(
+        `http://localhost:8000/meetings/${meetingId}/live-insights`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(
+          `Failed to fetch insights: ${response.statusText}`
+        );
+      }
+
+      const data = await response.json();
+
+      console.log('Received insights data:', data);
+
+      if (!mountedRef.current) return;
+
+      // Transform questions if needed.
+      const questions = Array.isArray(data.questions)
+        ? data.questions
+        : data.questions && typeof data.questions === 'object'
+          ? Object.values(data.questions)
+          : [];
+
+      // Transform action items if needed.
+      const actionItems = Array.isArray(data.action_items)
+        ? data.action_items
+        : data.action_items
+          ? [data.action_items]
+          : [];
+
+      /*
+       * IMPORTANT:
+       *
+       * The backend may temporarily return:
+       *
+       * {
+       *   summary: null,
+       *   questions: [],
+       *   action_items: []
+       * }
+       *
+       * This can happen when there are not enough transcripts yet or
+       * when the AI service is temporarily unavailable.
+       *
+       * Do NOT overwrite previously generated insights with empty data.
+       */
+      setInsights(prevInsights => ({
+        ...prevInsights,
+
+        summary: data.summary || prevInsights.summary,
+
+        questions:
+          questions.length > 0
+            ? questions
+            : prevInsights.questions || [],
+
+        action_items:
+          actionItems.length > 0
+            ? actionItems
+            : prevInsights.action_items || [],
+      }));
+
+      // Clear an old error after a successful request.
+      setError(null);
+    } catch (error) {
+      console.error('Error fetching insights:', error);
+
+      // Keep existing insights visible even if one polling request fails.
+      if (mountedRef.current) {
+        setError('Failed to fetch meeting insights');
+      }
+    } finally {
+      insightsRequestInFlightRef.current = false;
+    }
+  }, [meetingId, isRecording]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -116,10 +168,12 @@ export function MeetingRoom({ onBack, meetingId, meetingTitle }: MeetingRoomProp
       clearInterval(durationIntervalRef.current);
       durationIntervalRef.current = null;
     }
+
     if (insightsIntervalRef.current) {
       clearInterval(insightsIntervalRef.current);
       insightsIntervalRef.current = null;
     }
+
     if (recorderRef.current) {
       recorderRef.current.stopRecording();
       recorderRef.current = null;
@@ -148,9 +202,12 @@ export function MeetingRoom({ onBack, meetingId, meetingTitle }: MeetingRoomProp
     if (isRecording && meetingId) {
       // Fetch immediately
       fetchInsights();
-      
+
       // Then fetch every 30 seconds
-      insightsIntervalRef.current = setInterval(fetchInsights, 30000);
+      insightsIntervalRef.current = setInterval(
+        fetchInsights,
+        300000
+      );
     }
 
     return () => {
@@ -164,7 +221,9 @@ export function MeetingRoom({ onBack, meetingId, meetingTitle }: MeetingRoomProp
   // Auto-scroll effect
   useEffect(() => {
     if (transcriptEndRef.current) {
-      transcriptEndRef.current.scrollIntoView({ behavior: 'smooth' });
+      transcriptEndRef.current.scrollIntoView({
+        behavior: 'smooth',
+      });
     }
   }, [transcripts, interimTranscripts]);
 
@@ -192,30 +251,37 @@ export function MeetingRoom({ onBack, meetingId, meetingTitle }: MeetingRoomProp
         if (!mountedRef.current) return;
 
         if (data.type === 'transcript') {
-          const audioType = data.audioType as 'microphone' | 'system';
-          
+          const audioType = data.audioType as
+            | 'microphone'
+            | 'system';
+
           if (data.text && data.text.trim()) {
             if (data.is_final) {
-              setTranscripts(prev => [...prev, {
-                type: audioType,
-                text: data.text.trim(),
-                timestamp: new Date().toISOString()
-              }]);
+              setTranscripts(prev => [
+                ...prev,
+                {
+                  type: audioType,
+                  text: data.text.trim(),
+                  timestamp: new Date().toISOString(),
+                },
+              ]);
 
               setInterimTranscripts(prev => ({
                 ...prev,
-                [audioType]: undefined
+                [audioType]: undefined,
               }));
             } else {
               setInterimTranscripts(prev => {
                 const currentText = prev[audioType];
                 const newText = data.text.trim();
+
                 if (currentText !== newText) {
                   return {
                     ...prev,
-                    [audioType]: newText
+                    [audioType]: newText,
                   };
                 }
+
                 return prev;
               });
             }
@@ -223,20 +289,34 @@ export function MeetingRoom({ onBack, meetingId, meetingTitle }: MeetingRoomProp
         } else if (data.type === 'status') {
           setStatus(data.message);
         } else if (data.type === 'error') {
-          console.error('Server error:', data.message);
+          console.error(
+            'Server error:',
+            data.message
+          );
           setError(data.message);
         }
       });
 
       await recorder.startRecording();
+
       recorderRef.current = recorder;
+
       setIsRecording(true);
       setStatus('Recording in progress...');
-
     } catch (error) {
-      console.error('Error in startRecording:', error);
+      console.error(
+        'Error in startRecording:',
+        error
+      );
+
       setStatus('Failed to start recording');
-      setError(error instanceof Error ? error.message : 'Unknown error occurred');
+
+      setError(
+        error instanceof Error
+          ? error.message
+          : 'Unknown error occurred'
+      );
+
       setIsRecording(false);
       cleanup();
     }
@@ -248,100 +328,160 @@ export function MeetingRoom({ onBack, meetingId, meetingTitle }: MeetingRoomProp
         await recorderRef.current.stopRecording();
         recorderRef.current = null;
       }
+
       setIsRecording(false);
       setStatus('Recording stopped');
 
       // if (transcripts.length > 0) {
       //   const summaryText = `Meeting lasted ${formatTime(duration)}. ${transcripts.length} segments were recorded.`;
       //   setSummary(summaryText);
-      // }
     } catch (error) {
-      console.error('Error stopping recording:', error);
-      setError('Failed to stop recording properly');
+      console.error(
+        'Error stopping recording:',
+        error
+      );
+
+      setError(
+        'Failed to stop recording properly'
+      );
     }
   };
- // Add this near your other useEffect hooks
-useEffect(() => {
-  console.log('Action items updated:', insights.action_items);
-  console.log('Questions updated:', insights.questions);
-}, [insights.action_items, insights.questions]);
+
+  // Debug logging
+  useEffect(() => {
+    console.log(
+      'Action items updated:',
+      insights.action_items
+    );
+
+    console.log(
+      'Questions updated:',
+      insights.questions
+    );
+  }, [
+    insights.action_items,
+    insights.questions,
+  ]);
+
   const handleEndMeeting = async () => {
     try {
       await stopRecording();
       onBack();
     } catch (error) {
-      console.error('Error ending meeting:', error);
-      setError('Failed to end meeting properly');
+      console.error(
+        'Error ending meeting:',
+        error
+      );
+
+      setError(
+        'Failed to end meeting properly'
+      );
     }
   };
 
   const formatTime = (seconds: number): string => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
-    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+
+    return `${mins
+      .toString()
+      .padStart(2, '0')}:${secs
+      .toString()
+      .padStart(2, '0')}`;
   };
 
   return (
     <div className="max-w-5xl mx-auto p-8">
+
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-2xl font-semibold">
             {meetingTitle || 'Active Meeting'}
           </h1>
+
           <div className="flex flex-col gap-1">
             <div className="text-gray-500">
               Duration: {formatTime(duration)}
             </div>
-            <div className="text-sm text-gray-500">{status}</div>
+
+            <div className="text-sm text-gray-500">
+              {status}
+            </div>
+
             {error && (
-              <div className="text-sm text-red-500">{error}</div>
+              <div className="text-sm text-red-500">
+                {error}
+              </div>
             )}
           </div>
         </div>
+
         <div className="flex gap-4">
-          <Button 
-            variant="outline" 
+          <Button
+            variant="outline"
             onClick={handleEndMeeting}
           >
             End Meeting
           </Button>
-          <Button 
-            variant={isRecording ? "destructive" : "default"}
-            onClick={() => isRecording ? stopRecording() : startRecording()}
+
+          <Button
+            variant={
+              isRecording
+                ? 'destructive'
+                : 'default'
+            }
+            onClick={() =>
+              isRecording
+                ? stopRecording()
+                : startRecording()
+            }
           >
-            {isRecording ? 'Stop Recording' : 'Start Recording'}
+            {isRecording
+              ? 'Stop Recording'
+              : 'Start Recording'}
           </Button>
         </div>
       </div>
 
       {/* Main Content */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+
         {/* Transcript Panel */}
         <div className="md:col-span-2">
           <div className="bg-white rounded-xl border p-6 shadow-sm h-[600px] overflow-y-auto">
-            <h2 className="text-lg font-medium mb-4">Live Transcript</h2>
+
+            <h2 className="text-lg font-medium mb-4">
+              Live Transcript
+            </h2>
+
             <div className="space-y-3">
-              {transcripts.map((transcript, index) => (
-                transcript.text && transcript.text.trim() && (
-                  <div
-                    key={`final-${index}`}
-                    className={getTranscriptStyle()}
-                  >
-                    {transcript.text}
-                  </div>
-                )
-              ))}
+
+              {transcripts.map(
+                (transcript, index) =>
+                  transcript.text &&
+                  transcript.text.trim() && (
+                    <div
+                      key={`final-${index}`}
+                      className={getTranscriptStyle()}
+                    >
+                      {transcript.text}
+                    </div>
+                  )
+              )}
+
               {interimTranscripts.system && (
                 <div className={getInterimStyle()}>
                   {interimTranscripts.system}
                 </div>
               )}
+
               {interimTranscripts.microphone && (
                 <div className={getInterimStyle()}>
                   {interimTranscripts.microphone}
                 </div>
               )}
+
               <div ref={transcriptEndRef} />
             </div>
           </div>
@@ -349,93 +489,174 @@ useEffect(() => {
 
         {/* Side Panels */}
         <div className="space-y-6">
+
           {/* Summary Panel */}
           <div className="bg-white rounded-xl border p-6 shadow-sm">
-            <h2 className="text-lg font-medium mb-4">Summary</h2>
+
+            <h2 className="text-lg font-medium mb-4">
+              Summary
+            </h2>
+
             {insights.summary ? (
               <div className="space-y-4">
-                <p className="text-gray-700">{insights.summary.summary}</p>
+
+                <p className="text-gray-700">
+                  {insights.summary.summary}
+                </p>
+
                 {insights.summary.topics?.length > 0 && (
                   <div>
-                    <h3 className="font-medium mt-2 mb-1">Key Topics:</h3>
+                    <h3 className="font-medium mt-2 mb-1">
+                      Key Topics:
+                    </h3>
+
                     <ul className="list-disc pl-4">
-                      {insights.summary.topics.map((topic, idx) => (
-                        <li key={idx} className="text-gray-600">{topic}</li>
-                      ))}
+                      {insights.summary.topics.map(
+                        (topic, idx) => (
+                          <li
+                            key={idx}
+                            className="text-gray-600"
+                          >
+                            {topic}
+                          </li>
+                        )
+                      )}
                     </ul>
                   </div>
                 )}
+
                 {insights.summary.decisions?.length > 0 && (
                   <div>
-                    <h3 className="font-medium mt-2 mb-1">Decisions Made:</h3>
+                    <h3 className="font-medium mt-2 mb-1">
+                      Decisions Made:
+                    </h3>
+
                     <ul className="list-disc pl-4">
-                      {insights.summary.decisions.map((decision, idx) => (
-                        <li key={idx} className="text-gray-600">{decision}</li>
-                      ))}
+                      {insights.summary.decisions.map(
+                        (decision, idx) => (
+                          <li
+                            key={idx}
+                            className="text-gray-600"
+                          >
+                            {decision}
+                          </li>
+                        )
+                      )}
                     </ul>
                   </div>
                 )}
+
               </div>
             ) : (
               <p className="text-gray-500">
-                {isRecording ? 'Generating summary...' : 'Start recording to see summary'}
+                {isRecording
+                  ? 'Generating summary...'
+                  : 'Start recording to see summary'}
               </p>
             )}
           </div>
 
-      
+          {/* Action Items */}
           <div className="bg-white rounded-xl border p-6 shadow-sm">
-    <h2 className="text-lg font-medium mb-4">Action Items</h2>
-    {Array.isArray(insights.action_items) && insights.action_items.length > 0 ? (
-       
-  <ul className="space-y-2">
-    {insights.action_items.map((item, index) => (
-      <li key={index} className="text-gray-700 flex items-start gap-2">
-        <span>•</span>
-        <div>
-          <p>{item.description}</p>
-          {item.assigned_to && (
-            <p className="text-sm text-gray-500">Assigned to: {item.assigned_to}</p>
-          )}
-          {item.priority && (
-            <span className={`text-xs px-2 py-1 rounded ${
-              item.priority === 'high' ? 'bg-red-100 text-red-700' :
-              item.priority === 'medium' ? 'bg-yellow-100 text-yellow-700' :
-              'bg-green-100 text-green-700'
-            }`}>
-              {item.priority}
-            </span>
-          )}
-        </div>
-      </li>
-    ))}
-  </ul>
-) : (
-  <p className="text-gray-500">
-    {isRecording ? 'Detecting action items...' : 'Start recording to see action items'}
-  </p>
-)}
+
+            <h2 className="text-lg font-medium mb-4">
+              Action Items
+            </h2>
+
+            {Array.isArray(insights.action_items) &&
+            insights.action_items.length > 0 ? (
+
+              <ul className="space-y-2">
+
+                {insights.action_items.map(
+                  (item, index) => (
+                    <li
+                      key={index}
+                      className="text-gray-700 flex items-start gap-2"
+                    >
+                      <span>•</span>
+
+                      <div>
+                        <p>
+                          {item.description}
+                        </p>
+
+                        {item.assigned_to && (
+                          <p className="text-sm text-gray-500">
+                            Assigned to:{' '}
+                            {item.assigned_to}
+                          </p>
+                        )}
+
+                        {item.priority && (
+                          <span
+                            className={`text-xs px-2 py-1 rounded ${
+                              item.priority === 'high'
+                                ? 'bg-red-100 text-red-700'
+                                : item.priority === 'medium'
+                                ? 'bg-yellow-100 text-yellow-700'
+                                : 'bg-green-100 text-green-700'
+                            }`}
+                          >
+                            {item.priority}
+                          </span>
+                        )}
+                      </div>
+                    </li>
+                  )
+                )}
+
+              </ul>
+
+            ) : (
+
+              <p className="text-gray-500">
+                {isRecording
+                  ? 'Detecting action items...'
+                  : 'Start recording to see action items'}
+              </p>
+
+            )}
 
           </div>
 
-    {/* Follow-up Questions Panel */}
-    <div className="bg-white rounded-xl border p-6 shadow-sm">
-    <h2 className="text-lg font-medium mb-4">Follow-up Questions</h2>
-    {Array.isArray(insights.questions) && insights.questions.length > 0 ? (
-  <ul className="space-y-2">
-    {insights.questions.map((question, index) => (
-      <li key={index} className="text-gray-700">
-        • {question}
-      </li>
-    ))}
-  </ul>
-) : (
-  <p className="text-gray-500">
-    {isRecording ? 'Generating questions...' : 'Start recording to see suggested questions'}
-  </p>
-)}
+          {/* Follow-up Questions Panel */}
+          <div className="bg-white rounded-xl border p-6 shadow-sm">
+
+            <h2 className="text-lg font-medium mb-4">
+              Follow-up Questions
+            </h2>
+
+            {Array.isArray(insights.questions) &&
+            insights.questions.length > 0 ? (
+
+              <ul className="space-y-2">
+
+                {insights.questions.map(
+                  (question, index) => (
+                    <li
+                      key={index}
+                      className="text-gray-700"
+                    >
+                      • {question}
+                    </li>
+                  )
+                )}
+
+              </ul>
+
+            ) : (
+
+              <p className="text-gray-500">
+                {isRecording
+                  ? 'Generating questions...'
+                  : 'Start recording to see suggested questions'}
+              </p>
+
+            )}
 
           </div>
+
         </div>
       </div>
     </div>

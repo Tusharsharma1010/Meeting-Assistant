@@ -1,74 +1,70 @@
-from openai import OpenAI
-from typing import Dict, List, Optional
-import asyncio
-import logging
-from datetime import datetime
+import os
+from dotenv import load_dotenv
+from google import genai
 
-from ..config.settings import get_settings
-from .token_counter import TokenCounter
-from .rate_limiter import RateLimiter
+load_dotenv()
 
-logger = logging.getLogger(__name__)
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
+if not GEMINI_API_KEY:
+    raise ValueError("GEMINI_API_KEY is not set in the environment.")
+
+client = genai.Client(api_key=GEMINI_API_KEY)
+
 
 class AIService:
+    """AI service using Google Gemini."""
+
     def __init__(self):
-        self.settings = get_settings()
-        self.client = OpenAI(api_key=self.settings.OPENAI_API_KEY)
-        self.token_counter = TokenCounter(self.settings.GPT_MODEL)
-        self.rate_limiter = RateLimiter(self.settings.RATE_LIMIT_PER_MIN)
-        self.total_tokens_used = 0
-        self.total_cost = 0.0
+        self.client = client
+        self.model = self.settings.GEMINI_MODEL
 
-    async def process_with_retry(self, messages: List[Dict[str, str]], 
-                               max_retries: int = 3) -> Optional[str]:
-        """Process messages with retry logic"""
-        retries = 0
-        while retries < max_retries:
-            try:
-                if not self.rate_limiter.can_make_request():
-                    await asyncio.sleep(2)
-                    continue
+    async def generate_summary(self, transcript: str) -> str:
+        prompt = f"""
+You are an AI meeting assistant.
 
-                # Count input tokens
-                input_tokens = sum(self.token_counter.count_tokens(msg["content"]) 
-                                 for msg in messages)
-                
-                if input_tokens > self.settings.MAX_TOKENS_PER_REQUEST:
-                    raise ValueError(f"Input tokens ({input_tokens}) exceed maximum")
+Analyze the following meeting transcript and create a concise, professional summary.
 
-                response = await self.client.chat.completions.create(
-                    model=self.settings.GPT_MODEL,
-                    messages=messages,
-                    temperature=0.7,
-                )
+Include:
+- Main topics discussed
+- Important decisions
+- Key conclusions
+- Important context
 
-                output_tokens = self.token_counter.count_tokens(
-                    response.choices[0].message.content
-                )
+Transcript:
+{transcript}
+"""
 
-                # Update usage statistics
-                self.total_tokens_used += (input_tokens + output_tokens)
-                self.total_cost += self.token_counter.estimate_cost(
-                    input_tokens,
-                    output_tokens,
-                    self.settings.COST_PER_1K_INPUT_TOKENS,
-                    self.settings.COST_PER_1K_OUTPUT_TOKENS
-                )
+        response = self.client.models.generate_content(
+            model=self.model,
+            contents=prompt
+        )
 
-                return response.choices[0].message.content
+        return response.text or "Unable to generate summary."
 
-            except Exception as e:
-                logger.error(f"Error processing OpenAI request: {e}")
-                retries += 1
-                if retries == max_retries:
-                    logger.error("Max retries reached")
-                    return None
-                await asyncio.sleep(2 ** retries)  # Exponential backoff
+    async def generate_action_items(self, transcript: str) -> list:
+        prompt = f"""
+Extract actionable tasks from the following meeting transcript.
 
-    def get_usage_stats(self) -> Dict:
-        """Get current usage statistics"""
-        return {
-            "total_tokens": self.total_tokens_used,
-            "total_cost": round(self.total_cost, 4),
-            "timestamp": datetime.now().isoformat()
-        }
+Return ONLY a JSON array in this format:
+
+[
+    {{
+        "description": "Task description",
+        "assignee": "Person responsible or Unknown",
+        "due_date": "Due date or Unknown"
+    }}
+]
+
+If there are no action items, return [].
+
+Transcript:
+{transcript}
+"""
+
+        response = self.client.models.generate_content(
+            model=self.model,
+            contents=prompt
+        )
+
+        return response.text or "[]"

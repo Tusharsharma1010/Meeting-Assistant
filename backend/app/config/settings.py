@@ -1,17 +1,43 @@
-from pydantic_settings import BaseSettings
 from functools import lru_cache
+from typing import Optional
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
 
 class Settings(BaseSettings):
-    OPENAI_API_KEY: str
+    # =========================
+    # Gemini
+    # =========================
+    GEMINI_API_KEY: str
+    GEMINI_MODEL: str = "gemini-3.5-flash"
+
+    # =========================
+    # OpenAI - kept optional
+    # for compatibility with
+    # older parts of the project
+    # =========================
+    OPENAI_API_KEY: Optional[str] = None
+    GPT_MODEL: str = "gpt-3.5-turbo"
+
+    # =========================
+    # AI / Rate Limiting
+    # =========================
     MAX_TOKENS_PER_REQUEST: int = 4000
-    GPT_MODEL: str = "gpt-3.5-turbo"  # Can be changed to gpt-4 later
     RATE_LIMIT_PER_MIN: int = 50
-    COST_PER_1K_INPUT_TOKENS: float = 0.0005   # GPT-3.5 rate
-    COST_PER_1K_OUTPUT_TOKENS: float = 0.0015  # GPT-3.5 rate
-    
-    class Config:
-        env_file = ".env"
+
+    # =========================
+    # Legacy cost settings
+    # =========================
+    COST_PER_1K_INPUT_TOKENS: float = 0.0
+    COST_PER_1K_OUTPUT_TOKENS: float = 0.0
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
 
 @lru_cache()
-def get_settings():
+def get_settings() -> Settings:
     return Settings()

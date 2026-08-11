@@ -1,227 +1,409 @@
-# Meeting Assistant AI
+# 🎙️ AI Meeting Assistant
 
-## Overview
-Meeting Assistant AI is a real-time meeting transcription and analysis application. It captures live audio from the microphone and system, transcribes it using Google Speech-to-Text, and generates actionable insights such as meeting summaries, follow-up questions, and action items. The application provides a seamless interface for managing live transcripts and insights during a meeting. It is designed to be used during Zoom, Google Meet, and Microsoft Teams meetings when users join via a browser, allowing seamless integration with virtual meeting platforms.
+> A real-time meeting assistant that captures microphone/system audio, transcribes conversations locally, and uses Google Gemini to generate meeting summaries, action items, and follow-up questions.
+
+![AI Meeting Assistant](assets/System_Architecture.png)
+
+## ✨ What it does
+
+AI Meeting Assistant helps turn a live conversation into structured meeting intelligence.
+
+### Core features
+
+- 🎤 **Live audio capture** — captures microphone audio and browser/system audio.
+- 📝 **Real-time transcription** — transcribes audio locally with **faster-whisper**.
+- 🧠 **AI meeting summary** — generates concise summaries, topics, and decisions.
+- ✅ **Action-item extraction** — identifies tasks, assignees, priorities, and due dates when available.
+- ❓ **Follow-up questions** — generates questions that help clarify next steps and open issues.
+- 🔄 **Progressive insights** — updates meeting insights while a meeting is in progress.
+- 📚 **Meeting history** — stores meetings and their transcripts/insights for later review.
+- 🔌 **REST + WebSocket APIs** — WebSockets handle live audio/transcription while REST APIs manage meetings and insights.
+- 🗄️ **PostgreSQL persistence** — stores meetings, transcripts, summaries, action items, follow-up questions, and topics.
 
 ---
-### Architecture Diagram
+
+## 📸 Screenshots
+
+### 🏠 Dashboard
+
+![Dashboard](assets/screenshots/dashboard.png)
+
+### 🎙️ Live Meeting & Real-Time Transcript
+
+![Live Meeting](assets/screenshots/live-meeting.png)
+
+### 📚 Meeting History
+
+![Meeting History](assets/screenshots/meeting-history.png)
+
+### Meeting workspace
+
+### System architecture
+
 ![System Architecture](assets/System_Architecture.png)
 
-### Database Diagram
+### Database architecture
+
 ![Database Architecture](assets/db_architecture.png)
-## Features
-### Real-Time Capabilities
-- **Live Dual Audio Input Handling**: Processes audio from both the system and microphone.
-- **Real-Time Transcription**: Displays live transcripts of ongoing discussions.
-- **Progressive Insights**: Continuously generates meeting summaries, action items, and follow-up questions.
-
-### AI-Driven Insights
-- **Summaries**: Generates concise meeting summaries with key topics and decisions.
-- **Follow-Up Questions**: Suggests insightful questions based on the discussion.
-- **Action Items**: Extracts actionable tasks from meeting transcripts.
-
-### User Interface
-- **Frontend**: React-based interface displaying live transcripts, insights, and action items.
-- **Interactive Controls**: Start/stop recording, view live updates, and manage meeting details.
-
-### Virtual Meeting Integration
-- **Browser-Based Usage**: Captures audio and video streams directly from Zoom, Google Meet, or Microsoft Teams when accessed via a browser.
-- **Platform-Specific APIs**: Integrates with Zoom SDK, Microsoft Graph API (Teams), and Google Meet's browser features to fetch meeting metadata and support automated recording.
-- **Audio and Video Context**: Processes both audio and video streams for enhanced meeting insights, such as speaker activity detection and video-based interaction analysis.
-
-## Technical Architecture Details
-
-### Audio Processing Pipeline
-- Dual stream processing (microphone and system audio)
-- Buffer management with 150ms synchronization
-- Noise reduction and speech detection algorithms
-- Real-time audio quality control
-
-### Fault Tolerance & Error Handling
-- Exponential backoff for API retries
-- Dead connection detection
-- Automatic WebSocket reconnection
-- Rate limiting for API stability
-
-### Performance Optimizations
-- Chunked audio processing (4096 samples)
-- Efficient NumPy array operations
-- Memory management for long-running sessions
-- Token-based API optimization
-
 
 ---
 
-## Technologies Used
-### Backend
-- **Framework**: FastAPI
-  - Enables asynchronous programming for handling WebSocket connections and REST API endpoints.
-  - Provides robust dependency injection for database session management.
-- **Real-Time Communication**: WebSocket
-  - Supports bi-directional communication for streaming audio data in real-time.
-- **Speech-to-Text**: Google Speech-to-Text API
-  - Handles transcription of audio data with enhanced models for punctuation and word confidence.
-- **AI**: OpenAI GPT Models
-  - Generates progressive and final summaries, follow-up questions, and action items.
-- **Database**: PostgreSQL
-  - Relational database used to store meeting, transcript, summary, and action item data.
-- **ORM**: SQLAlchemy
-  - Defines database models and relationships, ensuring efficient queries and scalability.
-- **Audio Processing**:
-  - **NumPy**: Processes raw audio data for silence detection and noise filtering.
-  - **Google Speech Client**: Streams audio data for transcription.
+## 🏗️ Architecture
+
+```text
+┌───────────────────────────────┐
+│        React + TypeScript     │
+│                               │
+│  Meeting UI • History •       │
+│  Audio Capture • Live Insights│
+└───────────────┬───────────────┘
+                │
+          REST + WebSocket
+                │
+                ▼
+┌───────────────────────────────┐
+│          FastAPI              │
+│                               │
+│  Meeting APIs                 │
+│  WebSocket audio pipeline     │
+│  Audio processing             │
+│  AI insight generation        │
+└───────┬───────────────┬───────┘
+        │               │
+        ▼               ▼
+┌──────────────┐  ┌────────────────┐
+│ faster-whisper│  │ Google Gemini │
+│ Local STT     │  │ AI Analysis   │
+└──────────────┘  └────────────────┘
+        │
+        ▼
+┌───────────────────────────────┐
+│          PostgreSQL           │
+│                               │
+│ Meetings • Transcripts •      │
+│ Summaries • Action Items •    │
+│ Follow-up Questions • Topics  │
+└───────────────────────────────┘
+```
+
+### Request flow
+
+1. The React frontend creates a meeting through the FastAPI REST API.
+2. `AudioRecorder` opens a WebSocket connection and streams audio.
+3. The backend buffers and processes audio through `EnhancedAudioProcessor`.
+4. `faster-whisper` performs local speech-to-text.
+5. Final transcript segments are persisted in PostgreSQL.
+6. The live-insights endpoint sends recent transcript context to Google Gemini.
+7. Gemini returns structured JSON for summaries, action items, and follow-up questions.
+8. The frontend renders the generated insights in the meeting workspace.
+9. Meeting data remains available through the history/details APIs.
+
+---
+
+## 🛠️ Tech Stack
 
 ### Frontend
-- **Framework**: React
-  - Provides a responsive, real-time UI for displaying transcripts, summaries, and action items.
-- **UI Libraries**: Material UI, Tailwind CSS
-  - Enables modern and consistent user interface designs.
-- **State Management**: React Hooks, Context API
-  - Manages application state for real-time updates and user interactions.
+- React 18
+- TypeScript
+- Vite
+- Tailwind CSS
+- React Router
+- Axios
+- Lucide React
 
-### Additional Tools
-- **Task Scheduling**: Asyncio
-  - Handles periodic tasks like generating progressive summaries during meetings.
-- **Deployment**: Uvicorn
-  - Serves the FastAPI application for development and production environments.
-- **Testing and Debugging**:
-  - **Logging**: Captures detailed logs for debugging and monitoring.
-  - **Retry Mechanisms**: Ensures resilience during OpenAI API or WebSocket failures.
+### Backend
+- Python
+- FastAPI
+- Uvicorn
+- SQLAlchemy
+- Alembic
+- WebSockets
+
+### Speech & AI
+- faster-whisper for local speech-to-text
+- Google Gemini API for meeting analysis
+- Structured JSON AI responses
+
+### Database
+- PostgreSQL
+- SQLAlchemy ORM
+
+### Audio / Processing
+- NumPy
+- SciPy
+- Web Audio API
+- Browser `getUserMedia` / `getDisplayMedia`
+
+### Testing & Tooling
+- Pytest
+- Git / GitHub
 
 ---
 
-## Setup Instructions
+## 📁 Project Structure
+
+```text
+Meeting-Assistant/
+├── backend/
+│   ├── app/
+│   │   ├── config/
+│   │   ├── core/
+│   │   │   ├── audio/
+│   │   │   └── meeting_manager.py
+│   │   ├── database/
+│   │   ├── routers/
+│   │   ├── services/
+│   │   └── main.py
+│   ├── alembic/
+│   ├── scripts/
+│   ├── tests/
+│   ├── .env.example
+│   ├── requirements.txt
+│   └── alembic.ini
+│
+├── extension/
+│   └── # optional browser-extension code
+│
+├── assets/
+│   ├── System_Architecture.png
+│   └── db_architecture.png
+│
+├── ui/
+│   ├── src/
+│   │   ├── components/
+│   │   ├── services/
+│   │   └── App.tsx
+│   ├── package.json
+│   └── vite.config.ts
+│
+├── .gitignore
+└── README.md
+```
+
+---
+
+## 🚀 Run locally
 
 ### Prerequisites
-1. **Python**: Version 3.9+
-2. **Node.js**: Version 16+
-3. **Google Cloud Account**: For Speech-to-Text API
-4. **OpenAI API Key**: For generating insights
 
-### Backend Setup
-1. Clone the repository:
-   ```bash
-   git clone <repository-url>
-   cd Meeting-Assistant
-   ```
+- Python 3.10+
+- Node.js 18+
+- PostgreSQL
+- A Google Gemini API key
+- A browser with microphone and screen/system-audio capture support
 
-2. Create a virtual environment and activate it:
-   ```bash
-   python3 -m venv env
-   source env/bin/activate  # For Linux/Mac
-   env\Scripts\activate   # For Windows
-   ```
+### 1. Clone the repository
 
-3. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
+```bash
+git clone <your-repository-url>
+cd Meeting-Assistant
+```
 
-4. Set up environment variables:
-   ```bash
-   export OPENAI_API_KEY="<your_openai_api_key>"
-   export GOOGLE_APPLICATION_CREDENTIALS="<path_to_google_credentials_json>"
-   export DATABASE_URL="postgresql+psycopg2://<username>:<password>@<host>/<db_name>"
-   ```
+### 2. Backend setup
 
-5. Initialize the database:
-   ```bash
-   alembic upgrade head
-   ```
+```bash
+cd backend
+python -m venv venv
+```
 
-6. Start the backend server:
-   ```bash
-   uvicorn app.main:app --host 0.0.0.0 --port 8000
-   ```
+Windows:
 
-### Frontend Setup
-1. Navigate to the frontend directory:
-   ```bash
-   cd ui
-   ```
+```bash
+venv\Scripts\activate
+```
 
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
+macOS/Linux:
 
-3. Start the development server:
-   ```bash
-   npm run dev
-   ```
+```bash
+source venv/bin/activate
+```
 
-4. Access the application at [http://localhost:5173](http://localhost:5173).
+Install dependencies:
 
----
+```bash
+pip install -r requirements.txt
+```
 
-## How It Works
+Create your environment file:
 
-### Architecture
-1. **Audio Processing**:
-   - Captures live audio streams from the microphone and system.
-   - Filters silent and noisy chunks using NumPy.
-   - Streams audio to Google Speech-to-Text API for transcription.
+```bash
+copy .env.example .env
+```
 
-2. **AI Integration**:
-   - Processes transcripts using OpenAI GPT models to generate summaries, action items, and follow-up questions.
+On macOS/Linux:
 
-3. **Data Management**:
-   - Stores meetings, transcripts, and insights in PostgreSQL.
-   - Manages relational data using SQLAlchemy ORM.
+```bash
+cp .env.example .env
+```
 
-4. **Frontend**:
-   - Displays live transcripts and insights.
-   - Allows users to manage meetings interactively.
+Then edit `.env` and add your real Gemini and PostgreSQL values.
 
-5. **Browser-Based Meeting Integration**:
-   - Hooks into browser WebRTC streams to capture audio and video during Zoom, Google Meet, and Teams meetings.
-   - Uses APIs specific to each platform to fetch metadata, attendee lists, and automate meeting start/stop actions.
+Run database migrations:
 
-### Key Components
-- **Backend**:
-  - `EnhancedAudioProcessor`: Handles live audio processing.
-  - `EnhancedAIService`: Communicates with OpenAI API to generate insights.
-  - `StreamManager`: Manages audio streams and buffers.
-  - **WebSocket Endpoint**:
-    - Streams live audio from the client to the server.
-    - Sends real-time transcripts and insights back to the client.
+```bash
+alembic upgrade head
+```
 
-- **Frontend**:
-  - `MeetingRoom`: Displays live transcripts, summaries, and action items.
-  - `AudioRecorder`: Captures and streams audio to the backend.
-  - **Progressive Insights**:
-    - Updates summaries and action items every 30 seconds during active meetings.
+Start FastAPI:
+
+```bash
+python -m uvicorn app.main:app --reload --port 8000
+```
+
+Backend:
+
+```text
+http://localhost:8000
+```
+
+Swagger:
+
+```text
+http://localhost:8000/docs
+```
+
+### 3. Frontend setup
+
+Open a second terminal:
+
+```bash
+cd ui
+npm install
+npm run dev
+```
+
+Frontend:
+
+```text
+http://localhost:5173
+```
 
 ---
 
-## API Endpoints
+## 🔐 Environment variables
+
+Never commit `.env` or API keys to GitHub.
+
+Create `backend/.env` from `backend/.env.example`:
+
+```env
+GEMINI_API_KEY=your_gemini_api_key_here
+GEMINI_MODEL=gemini-3.5-flash
+DATABASE_URL=postgresql+psycopg2://username:password@host:5432/database_name
+```
+
+> **Security:** Keep API keys and database credentials private. If a secret has ever been committed to a public repository, revoke/rotate it immediately.
+
+---
+
+## 📡 API overview
+
+### REST
+
+| Endpoint | Purpose |
+|---|---|
+| `POST /meetings/` | Create a meeting |
+| `GET /meetings/` | List meetings |
+| `GET /meetings/{meeting_id}/details` | Get meeting details |
+| `PUT /meetings/{meeting_id}/end` | End a meeting |
+| `DELETE /meetings/{meeting_id}` | Delete a meeting |
+| `POST /meetings/{meeting_id}/live-insights` | Generate progressive AI insights |
+| `POST /meetings/{meeting_id}/generate-summary` | Generate final meeting summary |
+| `GET /health` | Health check |
 
 ### WebSocket
-- **`/ws/{client_id}`**: Establishes a WebSocket connection for live audio streaming.
 
-### REST Endpoints
-- **Meetings**:
-  - `POST /meetings/`: Create a new meeting.
-  - `GET /meetings/`: List all meetings.
-  - `GET /meetings/{meeting_id}/details`: Get meeting details with transcripts and action items.
-  - `PUT /meetings/{meeting_id}/end`: End a meeting.
-  - `DELETE /meetings/{meeting_id}`: Delete a meeting.
+```text
+/ws/{client_id}
+```
 
-- **Insights**:
-  - `POST /meetings/{meeting_id}/live-insights`: Generate live insights.
-  - `POST /meetings/{meeting_id}/generate-summary`: Generate a final meeting summary.
+Used for live audio streaming and real-time transcript events.
 
 ---
 
-## Future Enhancements
-- **Multilingual Support**: Add transcription and analysis for additional languages.
-- **Cloud Deployment**: Deploy the application on AWS/GCP with CI/CD pipelines.
-- **Mobile Integration**: Extend the interface for mobile platforms.
-- **Enhanced Security**: Implement OAuth for user authentication and permissions.
+## 🧪 Testing
 
+Backend tests are included under:
+
+```text
+backend/tests/
+```
+
+Run:
+
+```bash
+cd backend
+pytest
+```
+
+For the frontend, build the production bundle with:
+
+```bash
+cd ui
+npm run build
+```
 
 ---
 
-## Contact
-For questions or feedback, contact Divya Kasa at [divyakasa.edu@gmail.com]
+## 🔍 Engineering highlights
 
+### Local transcription
+
+Speech-to-text is handled with `faster-whisper`, keeping the transcription pipeline local instead of sending raw audio to a third-party speech API.
+
+### Real-time communication
+
+The application uses a WebSocket connection for streaming audio from the browser to FastAPI and returning transcript/status events.
+
+### AI output normalization
+
+Gemini responses are requested as JSON and parsed/normalized before being returned to the frontend. This keeps the UI response shape predictable even when individual insight fields are missing.
+
+### Resilience
+
+The AI service includes retry handling and rate limiting to reduce failures caused by temporary API errors or request bursts.
+
+### Database design
+
+Meeting data is separated into related tables for transcripts, summaries, action items, follow-up questions, and topics, with SQLAlchemy relationships and Alembic migrations.
+
+---
+
+## 🚧 Future improvements
+
+These are intentionally **not part of the current version**:
+
+- 🔐 User authentication and signup/login
+- 👤 User-specific meeting ownership and permissions
+- ☁️ Production cloud deployment
+- 📅 Calendar integrations
+- 🗣️ Advanced speaker identification
+- 📤 Meeting export (PDF/Markdown)
+- 🌍 Multilingual transcription and analysis
+- 📱 Mobile experience
+
+---
+
+## 🎯 Project status
+
+**Current version:** Functional local MVP
+
+The core meeting workflow is implemented:
+
+> **Record → Transcribe → Analyze → Review**
+
+Authentication and production deployment are planned as subsequent improvements.
+
+---
+
+## 👨‍💻 Author
+
+**Tushar Sharma**
+
+B.Tech — Computer Science & Engineering Graduate
+
+---
+
+## ⭐ If you find this project useful
+
+Feel free to star the repository and explore the implementation.

@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session, joinedload 
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import logging
 import json
 import asyncio
@@ -855,43 +855,122 @@ async def generate_live_insights(
     meeting_id: str,
     db: Session = Depends(get_db)
 ):
+    """
+    Generate live meeting insights using ONE Gemini request.
+
+    The response contains:
+    - summary
+    - topics
+    - decisions
+    - action_items
+    - questions
+    """
     try:
         logger.info(f"Generating insights for meeting {meeting_id}")
-        meeting = db.query(Meeting).filter(Meeting.meeting_id == meeting_id).first()
+
+        meeting = (
+            db.query(Meeting)
+            .filter(Meeting.meeting_id == meeting_id)
+            .first()
+        )
+
         if not meeting:
-            raise HTTPException(status_code=404, detail="Meeting not found")
+            raise HTTPException(
+                status_code=404,
+                detail="Meeting not found"
+            )
 
-        # Get recent transcripts
-        recent_transcripts = db.query(TranscriptSegment)\
-            .filter(TranscriptSegment.meeting_id == meeting.id)\
-            .order_by(TranscriptSegment.timestamp.desc())\
-            .limit(10)\
+        # Get the most recent transcript segments.
+        # Fetch newest first, then reverse them so the AI receives
+        # the discussion in chronological order.
+        recent_transcripts = (
+            db.query(TranscriptSegment)
+            .filter(TranscriptSegment.meeting_id == meeting.id)
+            .order_by(TranscriptSegment.timestamp.desc())
+            .limit(10)
             .all()
+        )
 
-        transcript_texts = [t.text for t in recent_transcripts]
-        
-        logger.info(f"Processing {len(transcript_texts)} transcript segments")
-        
-        # Generate insights using AI service
-        summary = await ai_service.generate_progressive_summary(transcript_texts)
-        logger.info(f"Generated summary: {summary}")
-        
-        questions = await ai_service.generate_followup_questions(' '.join(transcript_texts))
-        logger.info(f"Generated questions: {questions}")
-        
-        action_items = await ai_service.extract_action_items(' '.join(transcript_texts))
-        logger.info(f"Generated action items: {action_items}")
+        recent_transcripts.reverse()
 
-        return JSONResponse(content={
-            "summary": json.loads(summary) if summary else None,
-            "questions": json.loads(questions) if questions else None,
-            "action_items": json.loads(action_items) if action_items else None
-        })
+        transcript_texts = [
+            t.text for t in recent_transcripts
+            if t.text and t.text.strip()
+        ]
+
+        logger.info(
+            f"Processing {len(transcript_texts)} transcript segments "
+            f"for live insights"
+        )
+
+        # No transcripts available.
+        # Return a stable response shape so the frontend can safely
+        # keep displaying any insights it already has.
+        if not transcript_texts:
+            return JSONResponse(
+                content={
+                    "status": "no_update",
+                    "summary": None,
+                    "questions": [],
+                    "action_items": [],
+                    "message": "No transcripts available for live insights"
+                }
+            )
+
+        # IMPORTANT:
+        # generate_progressive_summary now generates summary, topics,
+        # decisions, action items and follow-up questions in ONE
+        # Gemini request instead of three separate requests.
+        insights = await ai_service.generate_progressive_summary(
+            transcript_texts
+        )
+
+        if not insights:
+            logger.warning(
+                f"No live insights generated for meeting {meeting_id}"
+            )
+
+            return JSONResponse(
+                content={
+                    "status": "no_update",
+                    "summary": None,
+                    "questions": [],
+                    "action_items": [],
+                    "message": "AI service did not return live insights"
+                }
+            )
+
+        logger.info(
+            f"Live insights generated successfully for meeting "
+            f"{meeting_id}"
+        )
+
+        return JSONResponse(
+            content={
+                "status": "success",
+                "summary": {
+                    "summary": insights.get("summary", ""),
+                    "topics": insights.get("topics", []),
+                    "decisions": insights.get("decisions", [])
+                },
+                "questions": insights.get("questions", []),
+                "action_items": insights.get("action_items", [])
+            }
+        )
+
+    except HTTPException:
+        raise
 
     except Exception as e:
-        logger.error(f"Error generating live insights: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-    
+        logger.exception(
+            f"Error generating live insights: {e}"
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

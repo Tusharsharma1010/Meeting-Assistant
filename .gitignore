@@ -1,9 +1,64 @@
+# =========================
+# Environment & Secrets
+# =========================
+
+.env
+.env.*
+!.env.example
+
+# Google / API service account credentials
 speech-ti-text-api-a7d7589cc9cd.json
-node_modules
-venv/
-backend/venv/
-venv/
-backend/venv/
+speech-ti-text-api-68030db60479.json
+
+# =========================
+# Python
+# =========================
+
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.pyo
+*.pyd
 *.dylib
 *.pkl
-speech-ti-text-api-68030db60479.json
+
+# Virtual environments
+venv/
+.venv/
+env/
+backend/venv/
+
+# =========================
+# Node / React
+# =========================
+
+node_modules/
+dist/
+build/
+
+# =========================
+# Testing / Coverage
+# =========================
+
+.coverage
+htmlcov/
+
+# =========================
+# IDE
+# =========================
+
+.vscode/
+.idea/
+
+# =========================
+# OS
+# =========================
+
+.DS_Store
+Thumbs.db
+
+# =========================
+# Logs
+# =========================
+
+*.log
