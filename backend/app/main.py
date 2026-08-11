@@ -26,11 +26,7 @@ ai_service = EnhancedAIService()
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "https://meeting-assistant-opal-five.vercel.app",
-    ],
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -299,6 +295,10 @@ async def health_check():
             "status": "healthy",
             "active_connections": len(active_processors),
             "timestamp": datetime.now(timezone.utc).isoformat()
+        },
+        headers={
+            "Access-Control-Allow-Origin": "http://localhost:5173",
+            "Access-Control-Allow-Credentials": "true",
         }
     )
 
@@ -326,6 +326,10 @@ async def create_meeting(title: Optional[str] = None, db: Session = Depends(get_
                 "is_active": meeting.is_active,
                 "transcripts": [],
                 "action_items": []
+            },
+            headers={
+                "Access-Control-Allow-Origin": "http://localhost:5173",
+                "Access-Control-Allow-Credentials": "true",
             }
         )
     except Exception as e:
@@ -384,7 +388,11 @@ async def list_meetings(db: Session = Depends(get_db)):
             response_data.append(meeting_data)
 
         return JSONResponse(
-            content=response_data
+            content=response_data,
+            headers={
+                "Access-Control-Allow-Origin": "http://localhost:5173",
+                "Access-Control-Allow-Credentials": "true",
+            }
         )
     except Exception as e:
         logger.error(f"Error fetching meetings: {e}")
@@ -539,7 +547,11 @@ async def get_meeting_details(meeting_id: str, db: Session = Depends(get_db)):
         logger.info(f"First transcript: {response_data['transcripts'][0] if response_data['transcripts'] else 'No transcripts'}")
         
         return JSONResponse(
-            content=response_data
+            content=response_data,
+            headers={
+                "Access-Control-Allow-Origin": "http://localhost:5173",
+                "Access-Control-Allow-Credentials": "true",
+            }
         )
 
     except HTTPException:
@@ -579,6 +591,10 @@ async def get_meeting_transcripts(meeting_id: str, db: Session = Depends(get_db)
                         "confidence": t.confidence if hasattr(t, 'confidence') else None
                     } for t in transcripts
                 ]
+            },
+            headers={
+                "Access-Control-Allow-Origin": "http://localhost:5173",
+                "Access-Control-Allow-Credentials": "true",
             }
         )
     except HTTPException:
@@ -627,6 +643,10 @@ async def create_test_transcripts(meeting_id: str, db: Session = Depends(get_db)
                         "timestamp": t.timestamp.isoformat()
                     } for t in created_transcripts
                 ]
+            },
+            headers={
+                "Access-Control-Allow-Origin": "http://localhost:5173",
+                "Access-Control-Allow-Credentials": "true",
             }
         )
     except Exception as e:
@@ -684,6 +704,10 @@ async def generate_meeting_summary(
                     "status": "success",
                     "meeting_id": meeting_id,
                     "summary": summary_text
+                },
+                headers={
+                    "Access-Control-Allow-Origin": "http://localhost:5173",
+                    "Access-Control-Allow-Credentials": "true",
                 }
             )
         else:
@@ -699,7 +723,11 @@ async def get_ai_usage_stats():
     try:
         stats = ai_service.get_usage_stats()
         return JSONResponse(
-            content=stats
+            content=stats,
+            headers={
+                "Access-Control-Allow-Origin": "http://localhost:5173",
+                "Access-Control-Allow-Credentials": "true",
+            }
         )
     except Exception as e:
         logger.error(f"Error getting AI usage stats: {e}")
@@ -755,6 +783,10 @@ async def generate_progressive_summary(
                     "status": "success",
                     "meeting_id": meeting_id,
                     "progressive_summary": summary_text
+                },
+                headers={
+                    "Access-Control-Allow-Origin": "http://localhost:5173",
+                    "Access-Control-Allow-Credentials": "true",
                 }
             )
 
@@ -805,6 +837,10 @@ async def end_meeting(meeting_id: str, db: Session = Depends(get_db)):
                 "meeting_id": meeting.meeting_id,
                 "end_time": meeting.end_time.isoformat(),
                 "is_active": meeting.is_active
+            },
+            headers={
+                "Access-Control-Allow-Origin": "http://localhost:5173",
+                "Access-Control-Allow-Credentials": "true",
             }
         )
     except HTTPException:
@@ -819,16 +855,6 @@ async def generate_live_insights(
     meeting_id: str,
     db: Session = Depends(get_db)
 ):
-    """
-    Generate live meeting insights using ONE Gemini request.
-
-    The response contains:
-    - summary
-    - topics
-    - decisions
-    - action_items
-    - questions
-    """
     try:
         logger.info(f"Generating insights for meeting {meeting_id}")
 
@@ -844,9 +870,7 @@ async def generate_live_insights(
                 detail="Meeting not found"
             )
 
-        # Get the most recent transcript segments.
-        # Fetch newest first, then reverse them so the AI receives
-        # the discussion in chronological order.
+        # Get recent transcripts
         recent_transcripts = (
             db.query(TranscriptSegment)
             .filter(TranscriptSegment.meeting_id == meeting.id)
@@ -855,70 +879,46 @@ async def generate_live_insights(
             .all()
         )
 
-        recent_transcripts.reverse()
-
-        transcript_texts = [
-            t.text for t in recent_transcripts
-            if t.text and t.text.strip()
-        ]
+        transcript_texts = [t.text for t in recent_transcripts]
 
         logger.info(
-            f"Processing {len(transcript_texts)} transcript segments "
-            f"for live insights"
+            f"Processing {len(transcript_texts)} transcript segments"
         )
 
-        # No transcripts available.
-        # Return a stable response shape so the frontend can safely
-        # keep displaying any insights it already has.
+        # No transcripts available
         if not transcript_texts:
             return JSONResponse(
                 content={
                     "status": "no_update",
-                    "summary": None,
-                    "questions": [],
-                    "action_items": [],
                     "message": "No transcripts available for live insights"
                 }
             )
 
-        # IMPORTANT:
-        # generate_progressive_summary now generates summary, topics,
-        # decisions, action items and follow-up questions in ONE
-        # Gemini request instead of three separate requests.
-        insights = await ai_service.generate_progressive_summary(
+        transcript_text = " ".join(transcript_texts)
+
+        # Generate insights using AI service
+        summary = await ai_service.generate_progressive_summary(
             transcript_texts
         )
+        logger.info(f"Generated summary: {summary}")
 
-        if not insights:
-            logger.warning(
-                f"No live insights generated for meeting {meeting_id}"
-            )
-
-            return JSONResponse(
-                content={
-                    "status": "no_update",
-                    "summary": None,
-                    "questions": [],
-                    "action_items": [],
-                    "message": "AI service did not return live insights"
-                }
-            )
-
-        logger.info(
-            f"Live insights generated successfully for meeting "
-            f"{meeting_id}"
+        questions = await ai_service.generate_followup_questions(
+            transcript_text
         )
+        logger.info(f"Generated questions: {questions}")
 
+        action_items = await ai_service.extract_action_items(
+            transcript_text
+        )
+        logger.info(f"Generated action items: {action_items}")
+
+        # The AI service already returns Python dict/list objects.
+        # Do NOT call json.loads() here.
         return JSONResponse(
             content={
-                "status": "success",
-                "summary": {
-                    "summary": insights.get("summary", ""),
-                    "topics": insights.get("topics", []),
-                    "decisions": insights.get("decisions", [])
-                },
-                "questions": insights.get("questions", []),
-                "action_items": insights.get("action_items", [])
+                "summary": summary,
+                "questions": questions,
+                "action_items": action_items
             }
         )
 
